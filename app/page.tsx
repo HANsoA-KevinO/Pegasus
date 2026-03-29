@@ -1,65 +1,135 @@
-import Image from "next/image";
+'use client'
+
+import { useState, useCallback, useMemo, useRef } from 'react'
+import { ModelProvider } from '@/lib/types'
+import { useChat } from '@/hooks/useChat'
+import { useWorkspaceArtifacts, buildArtifactsFromDB } from '@/hooks/useWorkspaceArtifacts'
+import { ChatContainer, QuotedSelection } from '@/components/chat/ChatContainer'
+import { WorkspacePanel } from '@/components/workspace/WorkspacePanel'
+import { Sidebar } from '@/components/sidebar/Sidebar'
 
 export default function Home() {
+  const [model, setModel] = useState<ModelProvider>('anthropic/claude-opus-4-6')
+  const [targetConference, setTargetConference] = useState('')
+  const [quotedSelection, setQuotedSelection] = useState<QuotedSelection | null>(null)
+
+  const {
+    messages,
+    isLoading,
+    conversationId,
+    dbArtifactFields,
+    runningConversationIds,
+    waitingForUserIds,
+    contextUsage,
+    sendMessage,
+    stopGeneration,
+    loadConversation,
+    answerQuestion,
+    resetChat,
+  } = useChat({ model, targetConference })
+
+  // Collect artifact-producing parts from ALL assistant messages (not just the latest).
+  const allAssistantParts = useMemo(() => {
+    const parts: typeof messages[0]['parts'] = []
+    for (const msg of messages) {
+      if (msg.role === 'assistant' && msg.parts) {
+        parts.push(...msg.parts)
+      }
+    }
+    return parts ?? []
+  }, [messages])
+
+  const timelineArtifacts = useWorkspaceArtifacts(allAssistantParts)
+
+  // Build artifacts from DB fields (for loaded conversations)
+  const dbArtifacts = useMemo(() => {
+    if (!dbArtifactFields) return []
+    return buildArtifactsFromDB(dbArtifactFields)
+  }, [dbArtifactFields])
+
+  // Prefer DB artifacts when available and richer (includes ImageProcessor results, icons, etc.)
+  // During streaming, timeline artifacts are the only source; after stream ends, DB has the full picture
+  const artifacts = dbArtifacts.length >= timelineArtifacts.length && dbArtifacts.length > 0
+    ? dbArtifacts
+    : timelineArtifacts.length > 0
+      ? timelineArtifacts
+      : dbArtifacts
+
+  // Show workspace panel when there are artifacts or agent is working
+  const showWorkspace = artifacts.length > 0 || isLoading
+
+  const handleNewChat = useCallback(() => {
+    resetChat()
+  }, [resetChat])
+
+  const handleDeleteConversation = useCallback((id: string) => {
+    if (id === conversationId) {
+      resetChat()
+    }
+  }, [conversationId, resetChat])
+
+  const handleQuoteSelection = useCallback((selection: QuotedSelection) => {
+    setQuotedSelection(selection)
+  }, [])
+
+  // Persist SVG editor changes to DB (debounced)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const handleArtifactUpdate = useCallback((path: string, content: string) => {
+    if (!conversationId) return
+    // Debounce DB writes
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => {
+      fetch(`/api/conversations/${conversationId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path, content }),
+      }).catch(console.error)
+    }, 500)
+  }, [conversationId])
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <div className="flex h-screen bg-stone-50/30">
+      <Sidebar
+        model={model}
+        onModelChange={setModel}
+        onSelectConversation={loadConversation}
+        onDeleteConversation={handleDeleteConversation}
+        onNewChat={handleNewChat}
+        currentConversationId={conversationId}
+        runningConversationIds={runningConversationIds}
+        waitingForUserIds={waitingForUserIds}
+      />
+
+      {/* Workspace panel — left side, appears when agent produces artifacts */}
+      {showWorkspace && (
+        <div className="transition-all duration-300 ease-out flex-1 min-w-0 h-full overflow-hidden">
+          <WorkspacePanel
+            artifacts={artifacts}
+            isStreaming={isLoading}
+            onQuoteSelection={handleQuoteSelection}
+            quotedSelection={quotedSelection}
+            onArtifactUpdate={handleArtifactUpdate}
+          />
+        </div>
+      )}
+
+      {/* Chat panel — right side */}
+      <main className={`
+        flex-shrink-0 transition-all duration-300 ease-out
+        ${showWorkspace ? 'w-[480px]' : 'flex-1'}
+      `}>
+        <ChatContainer
+          messages={messages}
+          isLoading={isLoading}
+          onSend={sendMessage}
+          onStop={stopGeneration}
+          onAnswerQuestion={answerQuestion}
+          onConferenceChange={setTargetConference}
+          quotedSelection={quotedSelection}
+          onClearQuote={() => setQuotedSelection(null)}
+          contextUsage={contextUsage}
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
       </main>
     </div>
-  );
+  )
 }
