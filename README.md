@@ -30,6 +30,16 @@ Pegasus 能够根据用户的文字描述或论文内容，自动完成从内容
 
 ---
 
+## 高保真 SVG 还原
+
+Pegasus 生成的可编辑 SVG 与 AI 原始生成图具有极高的视觉一致性。通过逆向工程 + 视觉审核 + 自动修正的流水线，SVG 版本在布局、配色、箭头、文字等细节上精确还原原图，同时每个元素都可独立编辑。
+
+| AI 生成原图 | SVG 可编辑版本 |
+|------------|---------------|
+| ![AI 生成结果](docs/screenshots/AI-generated-results.png) | ![SVG 可编辑结果](docs/screenshots/SVG-editable-results.png) |
+
+---
+
 ## 工作流程
 
 Pegasus 的核心绘图流程分为 7 个步骤：
