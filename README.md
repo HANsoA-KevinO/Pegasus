@@ -1,4 +1,4 @@
-# Pegasus
+# Pegasus 1.0.0
 
 [English](README.en.md) | 中文
 
